@@ -31,8 +31,8 @@ _
 │     - scanner.py
 ├───screenshots
 │     - badURL.PNG
-│     - CloneFail.PNG
 │     - nothingfound.PNG
+│     - PyTest.PNG
 │     - secretsFound-Linux.PNG
 │     - Successes-secrets.PNG
 │     - Vun-found.PNG
