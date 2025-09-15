@@ -1,0 +1,86 @@
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches:
+      - main
+
+env:
+  IMAGE_NAME: devsecops-home-assignment    
+  REGISTRY: docker.io
+
+jobs:
+  build_and_scan:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Install Trivy CLI
+        run: |
+          curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b /usr/local/bin
+          
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v2
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'  
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r tests/requirements.txt
+
+      - name: Run tests with pytest
+        run: |
+          export PYTHONPATH=$PYTHONPATH:$(pwd)
+          pytest -v
+        shell: bash
+
+
+
+      - name: Build Docker image
+        uses: docker/build-push-action@v4
+        id: build
+        with:
+          context: .
+          push: false
+          tags: ${{ env.REGISTRY }}/${{ secrets.DOCKER_USERNAME }}/${{ env.IMAGE_NAME }}:latest
+
+      - name: Scan Docker image for vulnerabilities
+        id: trivy-scan
+        run: |
+          trivy image --severity CRITICAL,HIGH,MEDIUM --format json -o trivy-report.json ${{ env.REGISTRY }}/${{ secrets.DOCKER_USERNAME }}/${{ env.IMAGE_NAME }}:latest
+          echo "critical=$(jq '[.Results[].Vulnerabilities? // [] | .[] | select(.Severity == "CRITICAL")] | length' trivy-report.json)" >> $GITHUB_OUTPUT
+
+      - name: Show critical vulnerabilities summary
+        if: steps.trivy-scan.outputs.critical != '0'
+        run: |
+          echo "Critical vulnerabilities found:"
+          jq -r '
+            .Results[].Vulnerabilities? // [] | .[] |
+            select(.Severity == "CRITICAL") |
+            "\(.VulnerabilityID) in \(.PkgName), Severity: \(.Severity)"
+          ' trivy-report.json
+
+      - name: Fail on critical vulnerabilities
+        if: steps.trivy-scan.outputs.critical != '0'
+        run: |
+          echo "Critical vulnerabilities found! Failing the build."
+          exit 1
+
+      - name: Push Docker image to Docker Hub
+        if: steps.trivy-scan.outputs.critical == '0'
+        uses: docker/build-push-action@v4
+        with:
+          context: .
+          push: true
+          tags: ${{ env.REGISTRY }}/${{ secrets.DOCKER_USERNAME }}/${{ env.IMAGE_NAME }}:latest
+
+

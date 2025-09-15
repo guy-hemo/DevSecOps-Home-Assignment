@@ -1,0 +1,5 @@
+*.md
+tests/
+.github/
+.git
+screenshots/
